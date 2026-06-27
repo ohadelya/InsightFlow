@@ -51,6 +51,9 @@ function getApiErrorMessage(response) {
 export default function Home() {
   const [file, setFile] = useState(null);
   const [data, setData] = useState(null);
+  const [debugInfo, setDebugInfo] = useState(null);
+  const [debugMode, setDebugMode] = useState(false);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
   const [downloadType, setDownloadType] = useState("pdf");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -60,6 +63,12 @@ export default function Home() {
 
   useEffect(() => {
     return () => {};
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const enabled = new URLSearchParams(window.location.search).get("debug") === "1";
+    setDebugMode(enabled);
   }, []);
 
   useEffect(() => {
@@ -83,6 +92,8 @@ export default function Home() {
 
     setLoading(true);
     setData(null);
+    setDebugInfo(null);
+    setIsDebugOpen(false);
     setError(null);
 
     // Step 1 — upload begins
@@ -93,7 +104,8 @@ export default function Home() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const res = await fetch("/api/analyze", {
+      const apiUrl = debugMode ? "/api/analyze?debug=1" : "/api/analyze";
+      const res = await fetch(apiUrl, {
         method: "POST",
         body: formData,
       });
@@ -115,6 +127,22 @@ export default function Home() {
 
       const payload = json?.result ?? json;
       setData(payload);
+      if (debugMode && payload?.debug_info && typeof payload.debug_info === "object") {
+        const safe = {
+          debug_version: payload?.debug_version ?? null,
+          appVersion: payload.debug_info?.appVersion ?? null,
+          finalDocumentType: payload.debug_info?.finalDocumentType ?? null,
+          finalConfidence: payload.debug_info?.finalConfidence ?? null,
+          structuralOverrideApplied: payload.debug_info?.structuralOverrideApplied ?? null,
+          resumeSignalCount: payload.debug_info?.resumeSignalCount ?? null,
+          resumeSignalCategories: payload.debug_info?.resumeSignalCategories ?? null,
+          localClassificationResult: payload.debug_info?.localClassificationResult ?? null,
+          localClassificationConfidence: payload.debug_info?.localClassificationConfidence ?? null,
+          localClassificationReason: payload.debug_info?.localClassificationReason ?? null,
+          finalReason: payload.debug_info?.finalReason ?? null,
+        };
+        setDebugInfo(safe);
+      }
     } catch (err) {
       setError(err?.message || "Network error. Please try again.");
       setProgress(0);
@@ -460,6 +488,24 @@ export default function Home() {
                 Download Report
               </button>
             </div>
+
+            {debugMode && debugInfo && (
+              <div style={styles.debugSection}>
+                <button
+                  type="button"
+                  onClick={() => setIsDebugOpen((prev) => !prev)}
+                  style={styles.debugToggle}
+                >
+                  Debug Info
+                  <span style={styles.toggleArrow}>{isDebugOpen ? "▲" : "▼"}</span>
+                </button>
+                {isDebugOpen && (
+                  <pre style={styles.debugPre}>
+                    {JSON.stringify(debugInfo, null, 2)}
+                  </pre>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -605,6 +651,39 @@ const styles = {
   toggleArrow: {
     color: "#94a3b8",
     fontSize: 12,
+  },
+  debugSection: {
+    marginTop: 20,
+    border: "1px solid #334155",
+    borderRadius: 12,
+    background: "#0f172a",
+    padding: 12,
+  },
+  debugToggle: {
+    width: "100%",
+    background: "transparent",
+    color: "#e2e8f0",
+    border: "none",
+    cursor: "pointer",
+    fontSize: 14,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "2px 0",
+  },
+  debugPre: {
+    marginTop: 12,
+    marginBottom: 0,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    fontSize: 12,
+    lineHeight: 1.6,
+    color: "#cbd5e1",
+    background: "#020617",
+    border: "1px solid #1e293b",
+    borderRadius: 10,
+    padding: 10,
   },
   card: {
     background: "#111827",
