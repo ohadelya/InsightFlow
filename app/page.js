@@ -22,6 +22,22 @@ const LOADING_STEPS = [
   { label: "Building decision dashboard", progress: 100 },
 ];
 
+const ALPHA_ANALYSIS_LIMIT = 3;
+const ALPHA_USAGE_KEY = "insightflow_alpha_usage_count";
+
+function getStoredUsageCount() {
+  if (typeof window === "undefined") return 0;
+  const raw = window.localStorage.getItem(ALPHA_USAGE_KEY);
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.min(ALPHA_ANALYSIS_LIMIT, Math.floor(parsed));
+}
+
+function setStoredUsageCount(nextCount) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ALPHA_USAGE_KEY, String(Math.min(ALPHA_ANALYSIS_LIMIT, Math.max(0, Math.floor(nextCount)))));
+}
+
 function getExtractionFailureMessage() {
   if (typeof navigator !== "undefined" && String(navigator.language || "").toLowerCase().startsWith("he")) {
     return "לא הצלחנו לקרוא את קובץ ה-PDF. נסה להעלות קובץ PDF עם טקסט שניתן לסימון, או המר את הקובץ מחדש ל-PDF.";
@@ -54,6 +70,8 @@ export default function Home() {
   const [debugInfo, setDebugInfo] = useState(null);
   const [debugMode, setDebugMode] = useState(false);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [usageCount, setUsageCount] = useState(0);
+  const [uiLanguage, setUiLanguage] = useState("en");
   const [downloadType, setDownloadType] = useState("pdf");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -69,6 +87,8 @@ export default function Home() {
     if (typeof window === "undefined") return;
     const enabled = new URLSearchParams(window.location.search).get("debug") === "1";
     setDebugMode(enabled);
+    setUiLanguage(String(window.navigator?.language || "").toLowerCase().startsWith("he") ? "he" : "en");
+    setUsageCount(getStoredUsageCount());
   }, []);
 
   useEffect(() => {
@@ -82,7 +102,22 @@ export default function Home() {
       ? "Analysis complete"
       : "Ready to analyze";
 
+  const remainingAnalyses = Math.max(0, ALPHA_ANALYSIS_LIMIT - usageCount);
+  const hasRemainingAnalyses = remainingAnalyses > 0;
+  const usageLimitMessage = uiLanguage === "he"
+    ? "הגעת למכסת 3 הניתוחים לגרסת האלפא. תודה על הבדיקה — אשמח לקבל ממך פידבק."
+    : "You have reached the 3-analysis limit for the alpha version. Thanks for testing — feedback is appreciated.";
+  const usageIndicatorText = uiLanguage === "he"
+    ? `נותרו לך ${remainingAnalyses} מתוך 3 ניתוחים בגרסת האלפא`
+    : `${remainingAnalyses} of 3 alpha analyses remaining`;
+
   const upload = async () => {
+    // Alpha-only client-side usage limit. Not a security boundary.
+    if (!hasRemainingAnalyses) {
+      setError(usageLimitMessage);
+      return;
+    }
+
     if (!file) {
       setError("Please select a PDF file before analyzing.");
       return;
@@ -127,6 +162,11 @@ export default function Home() {
 
       const payload = json?.result ?? json;
       setData(payload);
+      setUsageCount((previous) => {
+        const next = Math.min(ALPHA_ANALYSIS_LIMIT, previous + 1);
+        setStoredUsageCount(next);
+        return next;
+      });
       if (debugMode && payload?.debug_info && typeof payload.debug_info === "object") {
         const safe = {
           debug_version: payload?.debug_version ?? null,
@@ -339,16 +379,19 @@ export default function Home() {
           </label>
           <button
             onClick={upload}
-            disabled={loading || !file}
+            disabled={loading || !file || !hasRemainingAnalyses}
             style={{
               ...styles.button,
-              opacity: loading || !file ? 0.55 : 1,
-              cursor: loading || !file ? "not-allowed" : "pointer",
+              opacity: loading || !file || !hasRemainingAnalyses ? 0.55 : 1,
+              cursor: loading || !file || !hasRemainingAnalyses ? "not-allowed" : "pointer",
             }}
           >
             {loading ? "Analyzing..." : "Analyze Document"}
           </button>
         </div>
+
+        <div style={styles.usageInfo}>{usageIndicatorText}</div>
+        {!hasRemainingAnalyses && <div style={styles.usageLimitMessage}>{usageLimitMessage}</div>}
 
         {error && <div style={styles.errorBox}>{error}</div>}
 
@@ -571,6 +614,23 @@ const styles = {
     background: "#7f1d1d",
     borderRadius: 12,
     color: "#fee2e2",
+  },
+  usageInfo: {
+    marginTop: -18,
+    marginBottom: 16,
+    fontSize: 13,
+    color: "#94a3b8",
+  },
+  usageLimitMessage: {
+    marginTop: -8,
+    marginBottom: 16,
+    padding: 10,
+    borderRadius: 10,
+    background: "rgba(245, 158, 11, 0.15)",
+    border: "1px solid rgba(245, 158, 11, 0.35)",
+    color: "#fde68a",
+    fontSize: 13,
+    lineHeight: 1.5,
   },
   loadingBox: {
     marginTop: 20,
