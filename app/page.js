@@ -22,6 +22,30 @@ const LOADING_STEPS = [
   { label: "Building decision dashboard", progress: 100 },
 ];
 
+function getExtractionFailureMessage() {
+  if (typeof navigator !== "undefined" && String(navigator.language || "").toLowerCase().startsWith("he")) {
+    return "לא הצלחנו לקרוא את קובץ ה-PDF. נסה להעלות קובץ PDF עם טקסט שניתן לסימון, או המר את הקובץ מחדש ל-PDF.";
+  }
+
+  return "We could not read this PDF. Please upload a text-based PDF or re-export the file as PDF.";
+}
+
+function getApiErrorMessage(response) {
+  if (response?.stage === "extraction") {
+    return getExtractionFailureMessage();
+  }
+
+  if (typeof response?.error === "string" && response.error.trim()) {
+    return response.error;
+  }
+
+  if (typeof response?.message === "string" && response.message.trim()) {
+    return response.message;
+  }
+
+  return "Unable to parse API response.";
+}
+
 // removed badge styles since they are handled in components
 
 export default function Home() {
@@ -81,7 +105,7 @@ export default function Home() {
       const json = await res.json();
 
       if (!res.ok) {
-        setError(json.error || "Unable to parse API response.");
+        setError(getApiErrorMessage(json));
         return;
       }
 
