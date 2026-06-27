@@ -44,6 +44,9 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Increment when deploying a fix so Vercel logs / debug_info confirm the new code is live
+const APP_VERSION = "b0602e8-resume-classification-fix";
+
 const SECTION_TITLE_GUARDS = /^(summary|professional summary|profile|skills|experience|education|languages?|military service|projects?|certifications?|achievements?|שפות|השכלה|תמצית|ניסיון|כישורים|שירות\s+צבאי|פרויקטים|הישגים)$/i;
 
 function decodePdfText(value) {
@@ -302,6 +305,9 @@ export async function POST(req) {
     };
 
     const requestStart = Date.now();
+    console.log("[app/api/analyze] app-version", APP_VERSION);
+    const { searchParams: reqSearchParams } = new URL(req.url);
+    const debugMode = reqSearchParams.get("debug") === "1";
     const logTotalTime = () => {
       metrics.totalMs = Date.now() - requestStart;
       console.log("[app/api/analyze] total-request-time", metrics.totalMs);
@@ -424,11 +430,16 @@ ${textForPrompt}`;
     let docType = "generic";
     let finalConfidence = 0;
     let classificationReason = weakClassification.reason;
+    // If the classifier set structuralOverride, skip the AI classifier entirely — the document
+    // has enough structural signals and the AI should not be able to override it.
+    const structuralOverrideApplied = weakClassification.structuralOverride === true && weakClassification.docType === "resume";
 
-    if (weakClassification.confidence >= 0.85) {
+    if (weakClassification.confidence >= 0.85 || structuralOverrideApplied) {
       docType = weakClassification.docType;
       finalConfidence = weakClassification.confidence;
-      classificationReason = `Skipped AI classifier because local document signals were strong. ${weakClassification.reason}`;
+      classificationReason = structuralOverrideApplied
+        ? `Skipped AI classifier: resume structural override applied. ${weakClassification.reason}`
+        : `Skipped AI classifier because local document signals were strong. ${weakClassification.reason}`;
       metrics.classificationSource = "local";
       console.log("[app/api/analyze] classification-source", "local");
     } else {
@@ -466,39 +477,51 @@ ${textForPrompt}`;
       classificationReason = `AI classification result ${finalType} with confidence ${finalConfidence}. ${weakClassification.reason}`;
     }
 
+    // Safety net: structural resume override cannot be downgraded by the AI path or any later logic
+    if (structuralOverrideApplied && docType !== "resume") {
+      const overriddenDocType = docType;
+      docType = "resume";
+      finalConfidence = Math.max(finalConfidence, weakClassification.confidence);
+      classificationReason = `Resume structural override safety net: restored from "${overriddenDocType}". ${weakClassification.reason}`;
+      console.log("[app/api/analyze] structural-override-safety-restored", { restoredFrom: overriddenDocType });
+    }
+
     // Guard: never surface 0% confidence to the UI — use a minimum "uncertain" floor
     if (finalConfidence === 0) {
       finalConfidence = 0.3;
     }
 
-    // Sanitised classification diagnostics — no raw document text or personal data
-    {
+    // Sanitised classification diagnostics — no raw document text or personal data.
+    // Exposed via ?debug=1 and always written to server logs.
+    const classificationDiagnostics = (() => {
       const diagNorm = trimmedText.toLowerCase();
-      const signalCategories = {
-        contact_info:
-          /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/.test(diagNorm) ||
-          diagNorm.includes("טלפון") || diagNorm.includes("מייל") ||
-          diagNorm.includes("אימייל") || diagNorm.includes("linkedin"),
+      const resumeSignalCategories = {
+        contactInfo: /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/.test(diagNorm) || diagNorm.includes("טלפון") || diagNorm.includes("מייל") || diagNorm.includes("אימייל") || diagNorm.includes("linkedin"),
         experience: diagNorm.includes("ניסיון") || diagNorm.includes("experience") || diagNorm.includes("תעסוקתי"),
         education: diagNorm.includes("השכלה") || diagNorm.includes("לימודים") || diagNorm.includes("תואר") || diagNorm.includes("education"),
         skills: diagNorm.includes("מיומנויות") || diagNorm.includes("כישורים") || diagNorm.includes("skills"),
         languages: diagNorm.includes("שפות") || diagNorm.includes("languages") || (diagNorm.includes("עברית") && diagNorm.includes("אנגלית")),
-        military_service: diagNorm.includes("שירות צבאי") || diagNorm.includes("צהל") || diagNorm.includes("military") || diagNorm.includes("idf"),
-        professional_summary: diagNorm.includes("פרופיל") || diagNorm.includes("תמצית") || diagNorm.includes("summary") || diagNorm.includes("profile"),
-        resume_header: diagNorm.includes("קורות חיים") || diagNorm.includes("curriculum vitae") || /\bresume\b/.test(diagNorm),
+        military: diagNorm.includes("שירות צבאי") || diagNorm.includes("צהל") || diagNorm.includes("military") || diagNorm.includes("idf"),
+        summary: diagNorm.includes("פרופיל") || diagNorm.includes("תמצית") || diagNorm.includes("summary") || diagNorm.includes("profile"),
+        resumeHeader: diagNorm.includes("קורות חיים") || diagNorm.includes("curriculum vitae") || /\bresume\b/.test(diagNorm),
       };
-      console.log("[app/api/analyze] classification-debug", {
+      return {
+        appVersion: APP_VERSION,
         extractedTextLength: trimmedText.length,
         lineCount: extractedLineCount,
         detectedLanguage: language,
-        localClassification: { docType: weakClassification.docType, confidence: weakClassification.confidence },
-        resumeSignalCategories: signalCategories,
-        resumeSignalsFound: Object.values(signalCategories).filter(Boolean).length,
-        finalDocType: docType,
+        localClassificationResult: weakClassification.docType,
+        localClassificationConfidence: weakClassification.confidence,
+        localClassificationReason: weakClassification.reason,
+        resumeSignalCategories,
+        resumeSignalCount: Object.values(resumeSignalCategories).filter(Boolean).length,
+        structuralOverrideApplied,
+        finalDocumentType: docType,
         finalConfidence,
-        classificationReason,
-      });
-    }
+        finalReason: classificationReason,
+      };
+    })();
+    console.log("[app/api/analyze] classification-debug", classificationDiagnostics);
 
     metrics.documentType = docType;
 
@@ -943,13 +966,16 @@ ${textForPrompt}`;
       },
       ...(improvements ? { improvements } : {}),
       ...(documentCompleteness ? { document_completeness: documentCompleteness } : {}),
+      debug_version: APP_VERSION,
     };
 
     setCachedAnalysis(cacheKey, normalizedResponse);
 
     logTotalTime();
     finalizePerformanceLog(metrics);
-    return Response.json(normalizedResponse, { status: 200 });
+    // debug_info is intentionally excluded from the cache; it is appended per-request only
+    const responsePayload = debugMode ? { ...normalizedResponse, debug_info: classificationDiagnostics } : normalizedResponse;
+    return Response.json(responsePayload, { status: 200 });
   } catch (e) {
     console.error("[app/api/analyze] error", e);
     return Response.json(

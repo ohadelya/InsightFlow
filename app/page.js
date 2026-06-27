@@ -274,11 +274,40 @@ export default function Home() {
         </div>
 
         <div style={styles.uploadBox}>
+          {/* Hidden native file input — upload logic unchanged */}
           <input
+            id="pdf-file-input"
             type="file"
             accept=".pdf"
-            onChange={(e) => setFile(e.target.files[0])}
+            onChange={(e) => setFile(e.target.files[0] || null)}
+            style={{ position: "absolute", width: 1, height: 1, opacity: 0, pointerEvents: "none" }}
+            tabIndex={-1}
+            aria-hidden="true"
           />
+          <label
+            htmlFor="pdf-file-input"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "10px 20px",
+              background: file ? "#1e3a5f" : "#1e293b",
+              color: "#e2e8f0",
+              border: file ? "1px solid #3b82f6" : "1px dashed #475569",
+              borderRadius: 8,
+              cursor: "pointer",
+              fontSize: 14,
+              fontWeight: 500,
+              userSelect: "none",
+              whiteSpace: "nowrap",
+              transition: "background 0.15s, border-color 0.15s",
+            }}
+          >
+            📎{" "}
+            {file
+              ? (file.name.length > 30 ? file.name.slice(0, 27) + "…" : file.name)
+              : "Choose PDF File / בחר קובץ PDF"}
+          </label>
           <button
             onClick={upload}
             disabled={loading || !file}

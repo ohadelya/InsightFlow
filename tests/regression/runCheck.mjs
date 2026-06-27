@@ -75,6 +75,9 @@ function main() {
   const unit = run("node", ["--test", "src/engine/pipelineUtils.test.mjs"]);
   if (!unit.ok) failures.push("Unit tests failed");
 
+  const classifierUnit = run("node", ["--import", "tsx", "--test", "src/classifier/classifier.test.mts"]);
+  if (!classifierUnit.ok) failures.push("Classifier unit tests failed");
+
   const regressionExec = run("node", ["--import", "tsx", "tests/regression/runRegression.mjs", "--json"]);
   const regression = parseRegressionJson(regressionExec.stdout);
   if (!regressionExec.ok || !regression.ready) {
@@ -93,7 +96,7 @@ function main() {
 
   printFinalSummary({
     regression,
-    unitOk: unit.ok,
+    unitOk: unit.ok && classifierUnit.ok,
     buildOk: build.ok,
     failures,
   });
@@ -102,6 +105,12 @@ function main() {
     process.stdout.write("\n[unit test output]\n");
     process.stdout.write(unit.stdout);
     process.stdout.write(unit.stderr);
+  }
+
+  if (!classifierUnit.ok) {
+    process.stdout.write("\n[classifier test output]\n");
+    process.stdout.write(classifierUnit.stdout);
+    process.stdout.write(classifierUnit.stderr);
   }
 
   if (!regressionExec.ok) {

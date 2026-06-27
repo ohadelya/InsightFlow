@@ -4,6 +4,8 @@ export type ClassificationResult = {
   docType: DocumentType | "generic";
   confidence: number;
   reason: string;
+  /** True when classification was determined by resume structural signals rather than keyword scoring alone. */
+  structuralOverride?: boolean;
 };
 
 function countSignals(text: string, signals: string[]) {
@@ -99,6 +101,7 @@ export function classifyDocumentType(text: string): ClassificationResult {
       docType: "resume",
       confidence: Math.min(1, 0.7 + resumeSignals.hard * 0.05 + resumeSignals.medium * 0.03),
       reason: `Strong resume structure detected. ${resumeSignals.reason}`,
+      structuralOverride: true,
     };
   }
 
@@ -109,6 +112,7 @@ export function classifyDocumentType(text: string): ClassificationResult {
       docType: "resume",
       confidence: Math.min(0.97, 0.85 + (categoryCount - 4) * 0.03),
       reason: `Resume structural override: ${categoryCount}/8 resume categories detected. ${resumeSignals.reason}`,
+      structuralOverride: true,
     };
   }
 
@@ -117,6 +121,7 @@ export function classifyDocumentType(text: string): ClassificationResult {
       docType: "resume",
       confidence: 0.72,
       reason: `Resume category threshold: ${categoryCount}/8 resume categories detected. ${resumeSignals.reason}`,
+      structuralOverride: true,
     };
   }
 
