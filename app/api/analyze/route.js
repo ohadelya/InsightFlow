@@ -156,6 +156,119 @@ function ensureTwoSentenceText(value, uiLanguage, fallback) {
   return `${parts[0]} ${uiLanguage === "he" ? "חסרים פרטים מרכזיים שמגבילים את רמת הביטחון." : "Key details are still missing and reduce confidence."}`;
 }
 
+function sanitizeDebugLine(line) {
+  if (typeof line !== "string") return "";
+  const masked = line
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[EMAIL]")
+    .replace(/https?:\/\/\S+|www\.\S+/gi, "[URL]")
+    .replace(/\+?\d[\d\s().\-]{6,}\d/g, "[PHONE]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return masked.slice(0, 80);
+}
+
+function countOccurrences(text, needle) {
+  if (!text || !needle) return 0;
+  return text.split(needle).length - 1;
+}
+
+function buildKeywordPresence(trimmedText) {
+  const families = {
+    "קורות חיים": "קורות חיים",
+    "ניסיון": "ניסיון",
+    "השכלה": "השכלה",
+    "מיומנויות": "מיומנויות",
+    "כישורים": "כישורים",
+    "שפות": "שפות",
+    "שירות": "שירות",
+    "צבאי": "צבאי",
+    "תמצית": "תמצית",
+    "פרופיל": "פרופיל",
+    "SQL": "sql",
+    "Python": "python",
+    "Jira": "jira",
+    "SAP": "sap",
+  };
+
+  const reversedFamilies = {
+    "םייח תורוק": "םייח תורוק",
+    "ןויסינ": "ןויסינ",
+    "הלכשה": "הלכשה",
+  };
+
+  const lowered = String(trimmedText || "").toLowerCase();
+  const keywordPresence = {};
+  for (const [label, needle] of Object.entries(families)) {
+    const count = countOccurrences(lowered, needle.toLowerCase());
+    keywordPresence[label] = { present: count > 0, count };
+  }
+
+  const reversedKeywordPresence = {};
+  for (const [label, needle] of Object.entries(reversedFamilies)) {
+    const count = countOccurrences(trimmedText, needle);
+    reversedKeywordPresence[label] = { present: count > 0, count };
+  }
+
+  return {
+    keywordPresence,
+    reversedKeywordPresence,
+  };
+}
+
+function buildSectionHeaderCandidates(trimmedText) {
+  const lines = String(trimmedText || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const candidates = [];
+  for (const rawLine of lines) {
+    if (candidates.length >= 15) break;
+    if (rawLine.length > 100) continue;
+    if (!/[A-Za-z\u0590-\u05FF]/.test(rawLine)) continue;
+    if (/[@]|https?:\/\/|www\.|\+?\d[\d\s().\-]{6,}\d/i.test(rawLine)) continue;
+    const tokenCount = rawLine.split(/\s+/).filter(Boolean).length;
+    if (tokenCount > 8) continue;
+    const sanitized = sanitizeDebugLine(rawLine);
+    if (!sanitized) continue;
+    candidates.push(sanitized);
+  }
+
+  return candidates;
+}
+
+function buildTextShapeDebug({
+  trimmedText,
+  extractedLineCount,
+  extractedHebrewCharCount,
+  extractedLatinCharCount,
+  extractedDigitCount,
+}) {
+  const lines = String(trimmedText || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 15)
+    .map((line) => sanitizeDebugLine(line))
+    .filter(Boolean);
+
+  const { keywordPresence, reversedKeywordPresence } = buildKeywordPresence(trimmedText);
+
+  return {
+    extractedTextLength: String(trimmedText || "").length,
+    lineCount: extractedLineCount,
+    hebrewCharCount: extractedHebrewCharCount,
+    latinCharCount: extractedLatinCharCount,
+    digitCount: extractedDigitCount,
+    firstLinesSanitized: lines,
+    keywordPresence: {
+      ...keywordPresence,
+      reversedHebrew: reversedKeywordPresence,
+    },
+    sectionHeaderCandidates: buildSectionHeaderCandidates(trimmedText),
+  };
+}
+
 async function extractText(buffer) {
   const { default: PDFParser } = await import("pdf2json");
 
@@ -357,6 +470,15 @@ export async function POST(req) {
     const extractedLineCount = trimmedText ? trimmedText.split(/\r?\n/).filter(Boolean).length : 0;
     const firstNonSensitiveSampleLength = trimmedText ? trimmedText.replace(/\s+/g, " ").trim().slice(0, 120).length : 0;
     const resumeDiagnostics = extractResumeSectionDiagnostics(trimmedText);
+    const textShapeDebug = debugMode
+      ? buildTextShapeDebug({
+          trimmedText,
+          extractedLineCount,
+          extractedHebrewCharCount,
+          extractedLatinCharCount,
+          extractedDigitCount,
+        })
+      : null;
     metrics.extractionMs = extractionTimer.stop().durationMs;
     console.log("[app/api/analyze] extraction-time", metrics.extractionMs);
 
@@ -409,6 +531,22 @@ export async function POST(req) {
       console.log("[app/api/analyze] cache-hit", true);
       logTotalTime();
       finalizePerformanceLog(metrics);
+      if (debugMode) {
+        const cachedDebugInfo = {
+          appVersion: APP_VERSION,
+          finalDocumentType: cachedResult.document_type,
+          finalConfidence: cachedResult?.quality?.classification_confidence ?? null,
+          structuralOverrideApplied,
+          localClassificationResult: weakClassification.docType,
+          localClassificationConfidence: weakClassification.confidence,
+          localClassificationReason: weakClassification.reason,
+          resumeSignalCategories: null,
+          resumeSignalCount: null,
+          finalReason: cachedResult?.quality?.classification_reason ?? null,
+          textShapeDebug,
+        };
+        return Response.json({ ...cachedResult, debug_info: cachedDebugInfo, debug_version: APP_VERSION }, { status: 200 });
+      }
       return Response.json(cachedResult, { status: 200 });
     }
     // Explicit cache-miss log
@@ -519,6 +657,7 @@ ${textForPrompt}`;
         finalDocumentType: docType,
         finalConfidence,
         finalReason: classificationReason,
+        textShapeDebug,
       };
     })();
     console.log("[app/api/analyze] classification-debug", classificationDiagnostics);

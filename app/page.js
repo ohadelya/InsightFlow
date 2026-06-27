@@ -140,6 +140,7 @@ export default function Home() {
           localClassificationConfidence: payload.debug_info?.localClassificationConfidence ?? null,
           localClassificationReason: payload.debug_info?.localClassificationReason ?? null,
           finalReason: payload.debug_info?.finalReason ?? null,
+          textShapeDebug: payload.debug_info?.textShapeDebug ?? null,
         };
         setDebugInfo(safe);
       }
