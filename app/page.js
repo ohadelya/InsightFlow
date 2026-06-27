@@ -339,6 +339,11 @@ export default function Home() {
                 <div className="print-card" style={{ ...styles.card, borderTop: `4px solid #3b82f6` }}>
                   <h3 style={styles.cardTitle}>{lang === "Hebrew" ? "כותרת מסמך" : "Document Title"}</h3>
                   <p style={styles.textBlock}>{data.document_title}</p>
+                  {data.candidate_name ? (
+                    <p style={{ ...styles.textBlock, marginTop: 8, color: "#93c5fd" }}>
+                      {lang === "Hebrew" ? "מועמד: " : "Candidate: "}{data.candidate_name}
+                    </p>
+                  ) : null}
                 </div>
               </div>
             ) : null}

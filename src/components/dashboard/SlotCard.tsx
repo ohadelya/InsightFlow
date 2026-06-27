@@ -246,6 +246,9 @@ export function SlotCard({ slot, lang }: { slot: ProductSlot; lang?: "English" |
   const [expanded, setExpanded] = React.useState(false);
   const confTier = getConfidenceTier(slot.confidence);
   const confColor = confTier === "high" ? "#34d399" : confTier === "moderate" ? "#fbbf24" : confTier === "low" ? "#f87171" : "#64748b";
+  const hasEvidenceReason = typeof slot.evidence?.reason === "string" && slot.evidence.reason.trim().length > 0;
+  const hasEvidenceSection = typeof slot.evidence?.source_section === "string" && slot.evidence.source_section.trim().length > 0;
+  const shouldRenderEvidence = hasEvidenceReason || hasEvidenceSection;
 
   return (
     <div className="print-card" style={{ ...cardStyle, borderTop: `4px solid ${confColor}` }}>
@@ -271,16 +274,16 @@ export function SlotCard({ slot, lang }: { slot: ProductSlot; lang?: "English" |
       </div>
 
       {/* Lightweight Evidence block */}
-      {slot.evidence && (
+      {shouldRenderEvidence && (
         <div style={evidenceBox}>
           <div style={evidenceHeader}>{lang === "Hebrew" ? "ראיות:" : "Evidence:"}</div>
-          {slot.evidence.source_section && (
+          {hasEvidenceSection && (
             <div style={evidenceSection}>
               {lang === "Hebrew" ? "מדור מזהה: " : "Section: "} 
-              <strong>{slot.evidence.source_section}</strong>
+              <strong>{slot.evidence?.source_section}</strong>
             </div>
           )}
-          <div style={evidenceReason}>{slot.evidence.reason}</div>
+          {hasEvidenceReason && <div style={evidenceReason}>{slot.evidence?.reason}</div>}
         </div>
       )}
     </div>

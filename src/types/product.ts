@@ -76,6 +76,7 @@ export interface DocumentCompleteness {
 export interface ProductResponse {
   document_type: ProductDocumentType;
   document_title: string | null;
+  candidate_name?: string | null;
   language: "English" | "Hebrew";
   decision: ProductDecision;
   slots: ProductSlot[];

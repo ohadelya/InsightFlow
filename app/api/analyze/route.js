@@ -8,7 +8,7 @@ import { documentDashboards } from "../../../src/product/documentDashboards";
 import { safeParseAIJson } from "../../../src/utils/safeJson";
 import { computeHash } from "../../../src/utils/hash";
 import { getCachedAnalysis, setCachedAnalysis } from "../../../src/utils/analysisCache";
-import { extractResumeLocalSections } from "../../../src/extractors/resumeLocalExtractor";
+import { extractResumeLocalSections, extractResumeSectionDiagnostics } from "../../../src/extractors/resumeLocalExtractor";
 import {
   dedupeNormalizedSlots,
   hasContactInfoSignals,
@@ -44,15 +44,112 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+const SECTION_TITLE_GUARDS = /^(summary|professional summary|profile|skills|experience|education|languages?|military service|projects?|certifications?|achievements?|שפות|השכלה|תמצית|ניסיון|כישורים|שירות\s+צבאי|פרויקטים|הישגים)$/i;
+
+function decodePdfText(value) {
+  if (typeof value !== "string") return "";
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+function assemblePdf2JsonText(pdfData) {
+  const pages = Array.isArray(pdfData?.Pages) ? pdfData.Pages : [];
+  const pageTexts = [];
+
+  for (const page of pages) {
+    const textItems = Array.isArray(page?.Texts) ? page.Texts : [];
+    const normalizedItems = textItems
+      .map((item) => {
+        const y = Number(item?.y);
+        const x = Number(item?.x);
+        const value = Array.isArray(item?.R)
+          ? item.R.map((run) => decodePdfText(run?.T || "")).join("")
+          : "";
+        const text = value.replace(/\s+/g, " ").trim();
+        if (!text) return null;
+        if (!Number.isFinite(y) || !Number.isFinite(x)) return null;
+        return { x, y, text };
+      })
+      .filter((item) => item !== null)
+      .sort((a, b) => (Math.abs(a.y - b.y) <= 0.55 ? a.x - b.x : a.y - b.y));
+
+    const rows = [];
+    for (const item of normalizedItems) {
+      const previous = rows[rows.length - 1];
+      if (!previous || Math.abs(previous.y - item.y) > 0.55) {
+        rows.push({ y: item.y, items: [item] });
+      } else {
+        previous.items.push(item);
+      }
+    }
+
+    const pageLines = rows
+      .map((row) => row.items.sort((a, b) => a.x - b.x).map((entry) => entry.text).join(" ").replace(/\s+/g, " ").trim())
+      .filter(Boolean);
+
+    if (pageLines.length > 0) {
+      pageTexts.push(pageLines.join("\n"));
+    }
+  }
+
+  return pageTexts.join("\n\n").trim();
+}
+
+function detectCandidateName(text) {
+  if (!text || !text.trim()) return null;
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  for (const line of lines.slice(0, 8)) {
+    const candidate = line
+      .replace(/[|•·]/g, " ")
+      .replace(/^\s*(שם|name)\s*[:\-]\s*/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!candidate) continue;
+    if (candidate.length < 3 || candidate.length > 60) continue;
+    if (/^(resume|curriculum vitae|cv|קורות\s*חיים)$/i.test(candidate)) continue;
+    if (SECTION_TITLE_GUARDS.test(candidate)) continue;
+    if (/@|\+?\d|linkedin|github|gmail|hotmail|yahoo|דוא"?ל|טלפון|phone/i.test(candidate)) continue;
+    if (/\b(marketing|sales|crm|digital|analytics?)\b/i.test(candidate)) continue;
+    const wordCount = candidate.split(" ").filter(Boolean).length;
+    if (wordCount < 2 || wordCount > 4) continue;
+    if (!/[A-Za-z\u0590-\u05FF]/.test(candidate)) continue;
+    return candidate;
+  }
+
+  return null;
+}
+
+function inferResumeTitle(language, candidateName) {
+  if (candidateName) return candidateName;
+  return language === "Hebrew" ? "קורות חיים" : "Resume";
+}
+
+function ensureTwoSentenceText(value, uiLanguage, fallback) {
+  const base = typeof value === "string" ? value.trim() : "";
+  const source = base || fallback;
+  const parts = source.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 2);
+  if (parts.length >= 2) return parts.join(" ");
+  if (parts.length === 1 && /missing|חסר|חסרים|yet|עדיין/i.test(parts[0])) return parts[0];
+  return `${parts[0]} ${uiLanguage === "he" ? "חסרים פרטים מרכזיים שמגבילים את רמת הביטחון." : "Key details are still missing and reduce confidence."}`;
+}
+
 async function extractText(buffer) {
   const { default: PDFParser } = await import("pdf2json");
 
   return await new Promise((resolve, reject) => {
     const parser = new PDFParser(null, true);
 
-    parser.once("pdfParser_dataReady", () => {
+    parser.once("pdfParser_dataReady", (pdfData) => {
       try {
-        resolve(parser.getRawTextContent() || "");
+        const assembled = assemblePdf2JsonText(pdfData);
+        resolve(assembled || parser.getRawTextContent() || "");
       } catch (error) {
         reject(error);
       } finally {
@@ -73,7 +170,7 @@ const MAX_INPUT_CHARS = 25000;
 
 const SKILL_KEYWORDS = {
   technical: ["SQL", "Python", "Java", "JavaScript", "React", "Selenium"],
-  tools: ["Tableau", "Qlik", "Jira", "Monday", "TFS", "SAP", "ERP", "WMS", "POS", "PLM", "Excel", "Power BI"],
+  tools: ["Tableau", "Qlik", "Jira", "Monday", "TFS", "SAP", "SAP B1", "ERP", "WMS", "POS", "PLM", "Excel", "Power BI", "Salesforce", "CRM", "Google Workspace", "Office", "Meta", "APIs", "ETL"],
   business: ["ניתוח מערכות", "מנתח מערכות", "ניהול פרויקטים", "אפיון", "systems analysis", "project management", "requirements"],
   soft_skills: ["leadership", "communication", "teamwork", "presentation", "הובלה", "תקשורת", "עבודת צוות"],
 };
@@ -240,6 +337,7 @@ export async function POST(req) {
     const extractedDigitCount = trimmedText ? (trimmedText.match(/[0-9]/g) || []).length : 0;
     const extractedLineCount = trimmedText ? trimmedText.split(/\r?\n/).filter(Boolean).length : 0;
     const firstNonSensitiveSampleLength = trimmedText ? trimmedText.replace(/\s+/g, " ").trim().slice(0, 120).length : 0;
+    const resumeDiagnostics = extractResumeSectionDiagnostics(trimmedText);
     metrics.extractionMs = extractionTimer.stop().durationMs;
     console.log("[app/api/analyze] extraction-time", metrics.extractionMs);
 
@@ -254,6 +352,8 @@ export async function POST(req) {
       extractedDigitCount,
       extractedLineCount,
       firstNonSensitiveSampleLength,
+      firstHeaderCandidates: process.env.NODE_ENV === "production" ? undefined : resumeDiagnostics.headerCandidates,
+      sectionBoundaries: process.env.NODE_ENV === "production" ? undefined : resumeDiagnostics.boundaries,
       qualityIsValid: quality.isValid,
       qualityConfidence: quality.confidence,
       qualityReason: quality.reason,
@@ -446,6 +546,7 @@ ${textForPrompt}`;
     const allowedSlotTypes = new Set(dashboard.slots.map((slot) => slot.type));
     const normalizedSlots = Array.isArray(parsedResult.slots) ? parsedResult.slots : [];
     const localResumeSections = docType === "resume" ? extractResumeLocalSections(trimmedText) : null;
+    const candidateName = docType === "resume" ? detectCandidateName(trimmedText) : null;
     const aiSlots = normalizedSlots
       .map((slot) => {
         if (!slot || typeof slot !== "object") return null;
@@ -462,7 +563,13 @@ ${textForPrompt}`;
           ? content.trim()
           : content;
         const sanitizedContent = uiLanguage === "he" && type === "candidate_snapshot" && typeof normalizedContent === "string"
-          ? sanitizeTextForLanguage(normalizedContent, uiLanguage, "", isMostlyHebrew)
+          ? ensureTwoSentenceText(
+              sanitizeTextForLanguage(normalizedContent, uiLanguage, "", isMostlyHebrew),
+              uiLanguage,
+              uiLanguage === "he"
+                ? "מועמד עם כיוון מקצועי מוגדר על בסיס הטקסט שנמצא. נדרש חיזוק של נתונים מדידים כדי להעריך התאמה מלאה."
+                : "Candidate has a defined professional direction based on the detected text. Additional measurable details are needed for full fit assessment.",
+            )
           : normalizedContent;
         const title = localizeSlotTitle(type, slotConfig.title, uiLanguage);
         const priority = slotConfig.priority;
@@ -507,6 +614,31 @@ ${textForPrompt}`;
           localizeTitle: localizeSlotTitle,
         })
       : [];
+
+    if (docType === "resume" && localResumeSections?.professional_summary?.items?.length) {
+      const candidateConfig = dashboard.slots.find((slot) => slot.type === "candidate_snapshot");
+      if (candidateConfig) {
+        localSlots.push({
+          type: "candidate_snapshot",
+          title: localizeSlotTitle("candidate_snapshot", candidateConfig.title, uiLanguage),
+          priority: candidateConfig.priority,
+          content: ensureTwoSentenceText(
+            localResumeSections.professional_summary.items.join(" "),
+            uiLanguage,
+            uiLanguage === "he"
+              ? "פרופיל מקצועי זוהה במסמך. חסרים פרטים מדידים להשלמת הערכת התאמה מלאה."
+              : "A professional profile was identified in the document. Measurable details are still missing for full fit evaluation.",
+          ),
+          confidence: Math.max(0.8, Number(localResumeSections.professional_summary.confidence || 0.8)),
+          confidence_reason: uiLanguage === "he"
+            ? "התמצית מבוססת על פסקת הפרופיל המקצועי שנמצאה במסמך."
+            : "Summary is based on the professional profile section identified in the document.",
+          evidence: null,
+          shouldRender: true,
+          source: "local",
+        });
+      }
+    }
     const localSkills = docType === "resume" ? extractLocalSkillsFromText(trimmedText) : null;
 
     if (docType === "resume" && localSkills) {
@@ -567,6 +699,13 @@ ${textForPrompt}`;
         ? "נדרש חיזוק של נתונים מרכזיים כדי לתמוך בהחלטה חד-משמעית."
         : "Additional structured evidence is needed to support a stronger recommendation.",
       isMostlyHebrew,
+    );
+    const conciseDecisionReason = ensureTwoSentenceText(
+      sanitizedDecisionReason,
+      uiLanguage,
+      uiLanguage === "he"
+        ? "ההמלצה נשענת על ניסיון רלוונטי שנמצא במסמך. חסרים פרטים ממוקדים שיכולים לחזק את הוודאות הסופית."
+        : "The recommendation is based on relevant experience detected in the document. Focused details are still missing and limit final confidence.",
     );
 
     // Pass-through improvements (language-guarded for Hebrew UI)
@@ -652,7 +791,7 @@ ${textForPrompt}`;
     }
 
     const decisionCardContent = {
-      reason: sanitizedDecisionReason || (uiLanguage === "he" ? "המערכת לא הצליחה לנתח את המסמך בצורה אמינה." : "The system could not reliably parse the AI analysis."),
+      reason: conciseDecisionReason,
       factors: decisionFactors || [],
       missing_factors: decisionMissingFactors || [],
       confidence_reasons: decisionConfidenceReasons || [],
@@ -662,13 +801,20 @@ ${textForPrompt}`;
       || localSlots.find((slot) => slot.type === "candidate_snapshot" && slot.shouldRender && slot.content);
     if (docType === "resume" && !existingCandidateSlot) {
       const candidateConfig = dashboard.slots.find((slot) => slot.type === "candidate_snapshot");
-      const fallbackSummary = buildCandidateSnapshotFallback(trimmedText, uiLanguage);
+      const summarySource = localResumeSections?.professional_summary?.items?.join(" ") || trimmedText;
+      const fallbackSummary = buildCandidateSnapshotFallback(summarySource, uiLanguage);
       if (candidateConfig && fallbackSummary) {
         localSlots.push({
           type: "candidate_snapshot",
           title: localizeSlotTitle("candidate_snapshot", candidateConfig.title, uiLanguage),
           priority: candidateConfig.priority,
-          content: fallbackSummary,
+          content: ensureTwoSentenceText(
+            fallbackSummary,
+            uiLanguage,
+            uiLanguage === "he"
+              ? "פרופיל מקצועי ממוקד זוהה במסמך. נדרש חיזוק של פרטים מדידים כדי להשלים תמונת התאמה מלאה."
+              : "A focused professional profile was detected in the document. Additional measurable details are needed for a fuller fit assessment.",
+          ),
           confidence: 0.66,
           confidence_reason: uiLanguage === "he"
             ? "התמצית נבנתה מסימנים מפורשים שנמצאו בקורות החיים."
@@ -727,12 +873,13 @@ ${textForPrompt}`;
 
     const normalizedResponse = {
       document_type: docType,
-      document_title: inferDocumentTitle(trimmedText),
+      document_title: docType === "resume" ? inferResumeTitle(language, candidateName) : inferDocumentTitle(trimmedText),
+      candidate_name: candidateName,
       language,
       decision: {
         label: localizeDecisionLabel(decisionLabel || "needs_review", uiLanguage),
         confidence: decisionConfidence,
-        reason: sanitizedDecisionReason || (uiLanguage === "he" ? "המערכת לא הצליחה לנתח את המסמך בצורה אמינה." : "The system could not reliably parse the AI analysis."),
+        reason: conciseDecisionReason,
         ...(decisionFactors && decisionFactors.length > 0 ? { factors: decisionFactors } : {}),
         ...(decisionMissingFactors && decisionMissingFactors.length > 0 ? { missing_factors: decisionMissingFactors } : {}),
         ...(decisionConfidenceReasons && decisionConfidenceReasons.length > 0 ? { confidence_reasons: decisionConfidenceReasons } : {}),

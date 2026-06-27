@@ -6,6 +6,7 @@
 };
 
 type ResumeLocalExtraction = {
+  professional_summary?: ResumeLocalSection;
   languages?: ResumeLocalSection;
   military_service?: ResumeLocalSection;
   education?: ResumeLocalSection;
@@ -14,55 +15,84 @@ type ResumeLocalExtraction = {
   achievements?: ResumeLocalSection;
 };
 
+type ResumeSectionBoundaryDiagnostic = {
+  sectionType: keyof ResumeLocalExtraction;
+  startIndex: number;
+  endIndex: number;
+  confidence: number;
+};
+
+type ResumeExtractionDiagnostics = {
+  headerCandidates: string[];
+  boundaries: ResumeSectionBoundaryDiagnostic[];
+};
+
 type SectionDefinition = {
   sectionType: keyof ResumeLocalExtraction;
   headerAliases: RegExp[];
-  semanticPatterns: RegExp[];
-  itemPatterns: RegExp[];
+  includePatterns: RegExp[];
+  excludePatterns: RegExp[];
+  maxItems: number;
   minConfidence: number;
 };
 
+const GENERIC_SECTION_HEADER_HINT = /^(ניסיון\s+תעסוקתי|experience|work\s+experience|מיומנויות|skills?|כישורים|contact|פרטי\s+קשר|projects?|פרויקטים|certifications?|הסמכות|achievements?|הישגים|references?)\b[:\-\s]*$/i;
+
 const SECTION_DEFINITIONS: SectionDefinition[] = [
+  {
+    sectionType: "professional_summary",
+    headerAliases: [/תמצית\s+מקצועית|פרופיל\s+מקצועי|summary|professional\s+summary|profile|about\s+me/i],
+    includePatterns: [/(מנוסה|ניסיון|professional|experienced|specializ|התמח|focus|מומח|analytics?|analysis|project\s+management|ניהול\s+פרויקטים|systems?\s+analysis|ניתוח\s+מערכות)/i],
+    excludePatterns: [/(תואר|השכלה|university|college|שירות\s+צבאי|צה"?ל|idf|language|שפות|email|@|טלפון|phone)/i],
+    maxItems: 2,
+    minConfidence: 0.58,
+  },
   {
     sectionType: "languages",
     headerAliases: [/שפות|שפה|שליטה\s+בשפות|ידע\s+בשפות|language\s+skills?|languages?/i],
-    semanticPatterns: [/\b(hebrew|english|עברית|אנגלית|native|fluent|bilingual|mother\s+tongue|basic|intermediate|advanced)\b/i],
-    itemPatterns: [/\b(hebrew|english|עברית|אנגלית|native|fluent|bilingual|mother\s+tongue|basic|intermediate|advanced)\b/i],
+    includePatterns: [/(hebrew|english|arabic|french|spanish|russian|עברית|אנגלית|ערבית|צרפתית|ספרדית|רוסית|native|fluent|bilingual|mother\s+tongue|שפת\s+אם|שליטה\s+מלאה|advanced|intermediate|basic)/i],
+    excludePatterns: [/(צה"?ל|idf|שירות\s+צבאי|קבע|מפקד|officer|commander|university|college|תואר|degree)/i],
+    maxItems: 4,
     minConfidence: 0.6,
   },
   {
     sectionType: "military_service",
-    headerAliases: [/שירות\s+צבאי|שירות\s+צבאי\s+וקבע|צה"?ל|idf|military\s+service|army/i],
-    semanticPatterns: [/\b(idf|צה"?ל|military|army|officer|commander|מפקד|קבע|שירות\s+צבאי)\b/i],
-    itemPatterns: [/\b(idf|צה"?ל|military|army|officer|commander|מפקד|קבע|שירות\s+צבאי)\b/i],
+    headerAliases: [/שירות\s+צבאי|שירות\s+צבאי\s+וקבע|military\s+service|army/i],
+    includePatterns: [/(idf|צה"?ל|military|army|officer|commander|מפקד|קבע|שירות\s+צבאי|לוחם|גדוד)/i],
+    excludePatterns: [/(university|college|education|תואר|השכלה|degree|b\.a\.?|b\.sc\.?)/i],
+    maxItems: 3,
     minConfidence: 0.6,
   },
   {
     sectionType: "education",
-    headerAliases: [/השכלה|לימודים|תואר|education|academic\s+background|b\.a\.?|b\.sc\.?|university|college/i],
-    semanticPatterns: [/\b(education|academic|university|college|degree|b\.a\.?|b\.sc\.?|masters|mba|phd|graduate|student|השכלה|לימודים|תואר)\b/i],
-    itemPatterns: [/\b(university|college|degree|b\.a\.?|b\.sc\.?|masters|mba|phd|graduate|student|השכלה|לימודים|תואר)\b/i],
+    headerAliases: [/השכלה|לימודים|education|academic\s+background|b\.a\.?|b\.sc\.?|university|college/i],
+    includePatterns: [/(education|academic|university|college|degree|b\.a\.?|b\.sc\.?|masters|mba|phd|graduate|student|השכלה|לימודים|תואר|אוניברסיטה|מכללה)/i],
+    excludePatterns: [/(צה"?ל|idf|שירות\s+צבאי|commander|language\s+skills|שפות|native|fluent)/i],
+    maxItems: 4,
     minConfidence: 0.6,
   },
   {
     sectionType: "certifications",
     headerAliases: [/הסמכות|תעודות|קורסים|certifications?|courses?/i],
-    semanticPatterns: [/\b(certification|certificate|course|certified|licensed|הסמכה|תעודה|קורס)\b/i],
-    itemPatterns: [/\b(certification|certificate|course|certified|licensed|הסמכה|תעודה|קורס)\b/i],
+    includePatterns: [/(certification|certificate|course|certified|licensed|הסמכה|תעודה|קורס)/i],
+    excludePatterns: [/(education|university|college|military|צה"?ל|idf)/i],
+    maxItems: 4,
     minConfidence: 0.6,
   },
   {
     sectionType: "projects",
     headerAliases: [/פרויקטים|פרויקטים\s+מרכזיים|projects?|selected\s+projects?|key\s+projects?/i],
-    semanticPatterns: [/\b(project|פרויקט|implemented|delivered|built|developed|launched|led|designed)\b/i],
-    itemPatterns: [/\b(project|פרויקט|implemented|delivered|built|developed|launched|led|designed)\b/i],
+    includePatterns: [/(project|פרויקט|implemented|delivered|built|developed|launched|led|designed)/i],
+    excludePatterns: [/(education|degree|military|idf|צה"?ל|language\s+skills|שפות)/i],
+    maxItems: 4,
     minConfidence: 0.6,
   },
   {
     sectionType: "achievements",
     headerAliases: [/הישגים|achievements?|impact|highlights?/i],
-    semanticPatterns: [/\b(improved|reduced|increased|saved|led|managed|delivered|implemented|achieved|optimized|enhanced|הובילתי|שיפרתי|חסכתי|ניהלתי)\b/i],
-    itemPatterns: [/\b(improved|reduced|increased|saved|led|managed|delivered|implemented|achieved|optimized|enhanced|הובילתי|שיפרתי|חסכתי|ניהלתי)\b/i],
+    includePatterns: [/(improved|reduced|increased|saved|led|managed|delivered|implemented|achieved|optimized|enhanced|הובלתי|שיפרתי|חסכתי|ניהלתי)/i],
+    excludePatterns: [/(education|degree|military|idf|language\s+skills|שפות)/i],
+    maxItems: 4,
     minConfidence: 0.6,
   },
 ];
@@ -78,8 +108,8 @@ function splitIntoSegments(text: string) {
     .filter(Boolean);
 }
 
-function looksLikeAnyKnownSectionHeader(line: string) {
-  return SECTION_DEFINITIONS.some((definition) => looksLikeSectionHeader(line, definition));
+function countMatches(text: string, patterns: RegExp[]) {
+  return patterns.reduce((acc, pattern) => acc + (pattern.test(text) ? 1 : 0), 0);
 }
 
 function looksLikeSectionHeader(line: string, definition: SectionDefinition) {
@@ -88,8 +118,12 @@ function looksLikeSectionHeader(line: string, definition: SectionDefinition) {
   if (/^[\-•*▪]/.test(normalized)) return false;
 
   const matchedHeader = definition.headerAliases.find((pattern) => {
-    const match = pattern.exec(normalized);
-    return match && match.index != null && match.index <= 6;
+    const localPattern = new RegExp(pattern.source, pattern.flags);
+    const match = localPattern.exec(normalized);
+    if (!match || match.index == null || match.index > 14) return false;
+    const prefix = normalized.slice(0, match.index).trim();
+    if (prefix && !/^[\d\s\-•*▪|:.()]+$/.test(prefix)) return false;
+    return true;
   });
 
   return Boolean(matchedHeader);
@@ -100,187 +134,320 @@ function getHeaderMatch(line: string, definition: SectionDefinition) {
   if (!normalized) return null;
 
   const matchedHeader = definition.headerAliases.find((pattern) => {
-    const match = pattern.exec(normalized);
-    return match && match.index != null && match.index <= 6;
+    const localPattern = new RegExp(pattern.source, pattern.flags);
+    const match = localPattern.exec(normalized);
+    if (!match || match.index == null || match.index > 14) return false;
+    const prefix = normalized.slice(0, match.index).trim();
+    if (prefix && !/^[\d\s\-•*▪|:.()]+$/.test(prefix)) return false;
+    return true;
   });
   if (!matchedHeader) return null;
 
-  const match = matchedHeader.exec(normalized);
+  const localPattern = new RegExp(matchedHeader.source, matchedHeader.flags);
+  const match = localPattern.exec(normalized);
   if (!match || match.index == null) return null;
   return { normalized, headerText: match[0], index: match.index };
+}
+
+function compactItem(value: string, definition: SectionDefinition) {
+  const cleaned = normalizeLine(value)
+    .replace(/^[\-•*▪]\s*/, "")
+    .replace(/^\s*[-–]\s*/, "")
+    .trim();
+
+  if (!cleaned) return [];
+
+  if (definition.sectionType === "languages") {
+    return cleaned
+      .split(/[;|,]/)
+      .map((part) => normalizeLine(part))
+      .filter((part) => countMatches(part, definition.includePatterns) > 0)
+      .slice(0, definition.maxItems);
+  }
+
+  const sentenceChunks = cleaned
+    .split(/(?:\s*[•▪·]\s*|\s{2,}|\s*\|\s*)/)
+    .map((part) => normalizeLine(part))
+    .filter(Boolean);
+
+  const filtered = sentenceChunks
+    .filter((part) => countMatches(part, definition.excludePatterns) === 0)
+    .slice(0, definition.maxItems)
+    .map((part) => (part.length > 170 ? `${part.slice(0, 167)}...` : part));
+
+  if (definition.sectionType === "professional_summary") {
+    return filtered
+      .filter((part) => !GENERIC_SECTION_HEADER_HINT.test(part))
+      .filter((part) => !/ניסיון\s+תעסוקתי/i.test(part))
+      .filter((part) => !/^\d{4}\s*[-–]/.test(part))
+      .slice(0, definition.maxItems);
+  }
+
+  return filtered;
+}
+
+function evaluateLineForSection(line: string, definition: SectionDefinition) {
+  const includeHits = countMatches(line, definition.includePatterns);
+  const excludeHits = countMatches(line, definition.excludePatterns);
+  return includeHits - excludeHits;
+}
+
+type HeaderCandidate = {
+  sectionType: keyof ResumeLocalExtraction;
+  definition: SectionDefinition;
+  startIndex: number;
+  headerText: string;
+  line: string;
+};
+
+function detectHeaderCandidates(lines: string[]) {
+  const rawCandidates: HeaderCandidate[] = [];
+
+  lines.forEach((line, index) => {
+    for (const definition of SECTION_DEFINITIONS) {
+      const headerMatch = getHeaderMatch(line, definition);
+      if (!headerMatch) continue;
+      rawCandidates.push({
+        sectionType: definition.sectionType,
+        definition,
+        startIndex: index,
+        headerText: headerMatch.headerText,
+        line: headerMatch.normalized,
+      });
+    }
+  });
+
+  const bestByIndex = new Map<number, HeaderCandidate>();
+  for (const candidate of rawCandidates) {
+    const existing = bestByIndex.get(candidate.startIndex);
+    if (!existing) {
+      bestByIndex.set(candidate.startIndex, candidate);
+      continue;
+    }
+
+    if (candidate.headerText.length > existing.headerText.length) {
+      bestByIndex.set(candidate.startIndex, candidate);
+    }
+  }
+
+  return Array.from(bestByIndex.values()).sort((a, b) => a.startIndex - b.startIndex);
+}
+
+function buildSectionFromRange(
+  lines: string[],
+  candidate: HeaderCandidate,
+  endIndex: number,
+): { section: ResumeLocalSection; boundary: ResumeSectionBoundaryDiagnostic } | null {
+  const headerMatch = getHeaderMatch(lines[candidate.startIndex] || "", candidate.definition);
+  if (!headerMatch) return null;
+
+  const contentLines: string[] = [];
+  const tail = headerMatch.normalized.slice(headerMatch.index + headerMatch.headerText.length).replace(/^[:\-–\s|]+/, "").trim();
+  if (tail) {
+    contentLines.push(tail);
+  }
+
+  for (let index = candidate.startIndex + 1; index < endIndex; index += 1) {
+    const line = normalizeLine(lines[index] || "");
+    if (!line) continue;
+    if (GENERIC_SECTION_HEADER_HINT.test(line)) break;
+    contentLines.push(line);
+  }
+
+  const scoredLines = contentLines
+    .map((line) => ({ line, score: evaluateLineForSection(line, candidate.definition) }))
+    .filter(({ score }) => score > 0);
+
+  const bestLines = scoredLines.length > 0
+    ? scoredLines.map(({ line }) => line)
+    : contentLines.filter((line) => countMatches(line, candidate.definition.includePatterns) > 0);
+
+  if (bestLines.length === 0) return null;
+
+  const compacted = compactItem(bestLines.join(" | "), candidate.definition);
+  const items = compacted.filter(Boolean).slice(0, candidate.definition.maxItems);
+  if (items.length === 0) return null;
+
+  const includeHits = countMatches(bestLines.join(" "), candidate.definition.includePatterns);
+  const excludeHits = countMatches(bestLines.join(" "), candidate.definition.excludePatterns);
+  const confidence = Math.max(
+    0,
+    Math.min(
+      0.96,
+      0.68 + Math.min(0.2, includeHits * 0.05) - Math.min(0.14, excludeHits * 0.06),
+    ),
+  );
+
+  if (confidence < candidate.definition.minConfidence) return null;
+
+  return {
+    section: {
+      items,
+      confidence,
+      source: "explicit-header",
+      evidence: [`header:${candidate.headerText}`],
+    },
+    boundary: {
+      sectionType: candidate.sectionType,
+      startIndex: candidate.startIndex,
+      endIndex: Math.max(candidate.startIndex, endIndex - 1),
+      confidence,
+    },
+  };
+}
+
+function extractFromLineStructure(lines: string[]) {
+  const sections: Partial<Record<keyof ResumeLocalExtraction, ResumeLocalSection>> = {};
+  const boundaries: ResumeSectionBoundaryDiagnostic[] = [];
+  const headerCandidates = detectHeaderCandidates(lines);
+
+  for (let i = 0; i < headerCandidates.length; i += 1) {
+    const candidate = headerCandidates[i];
+    const next = headerCandidates[i + 1];
+    const endIndex = next ? next.startIndex : lines.length;
+    const built = buildSectionFromRange(lines, candidate, endIndex);
+    if (!built) continue;
+
+    const existing = sections[candidate.sectionType];
+    if (!existing || built.section.confidence > existing.confidence) {
+      sections[candidate.sectionType] = built.section;
+      const existingBoundaryIndex = boundaries.findIndex((entry) => entry.sectionType === candidate.sectionType);
+      if (existingBoundaryIndex >= 0) {
+        boundaries[existingBoundaryIndex] = built.boundary;
+      } else {
+        boundaries.push(built.boundary);
+      }
+    }
+  }
+
+  return {
+    sections,
+    boundaries,
+    headerCandidates: headerCandidates.map((candidate) => `${candidate.sectionType}:${candidate.headerText}`).slice(0, 10),
+  };
 }
 
 function getHeaderMatchAnywhere(text: string, definition: SectionDefinition) {
   const normalized = normalizeLine(text);
   if (!normalized) return null;
 
-  let bestMatch: { headerText: string; index: number } | null = null;
   for (const pattern of definition.headerAliases) {
     const flags = pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`;
     const globalPattern = new RegExp(pattern.source, flags);
-    let match = globalPattern.exec(normalized);
-    while (match) {
-      if (match.index != null) {
-        const index = match.index;
-        const headerText = match[0];
-        const prevChar = index > 0 ? normalized[index - 1] : "";
-        const hasLeftBoundary = index === 0 || /[\s|.;:,()\[\]{}]/.test(prevChar);
+    const match = globalPattern.exec(normalized);
+    if (!match || match.index == null) continue;
 
-        if (hasLeftBoundary) {
-          const tail = normalized.slice(index + headerText.length);
-          const hasSeparatorCue = /^\s*[:\-|]/.test(tail) || /^\s+\d/.test(tail);
-          const hasSemanticTail = definition.semanticPatterns.some((semanticPattern) => semanticPattern.test(tail.slice(0, 80)));
+    const tail = normalized.slice(match.index + match[0].length);
+    const hasTailSignal = countMatches(tail.slice(0, 180), definition.includePatterns) > 0;
+    if (!hasTailSignal) continue;
 
-          if (hasSeparatorCue || hasSemanticTail) {
-            if (!bestMatch || index < bestMatch.index) {
-              bestMatch = { headerText, index };
-            }
-            break;
-          }
-        }
-      }
-      match = globalPattern.exec(normalized);
-    }
+    return {
+      headerText: match[0],
+      index: match.index,
+      normalized,
+    };
   }
 
-  if (!bestMatch) return null;
-  return { normalized, headerText: bestMatch.headerText, index: bestMatch.index };
+  return null;
 }
 
-function compactItem(value: string, sectionType: SectionDefinition["sectionType"]) {
-  const cleaned = normalizeLine(value)
-    .replace(/^[\-•*▪]\s*/, "")
-    .replace(/^[A-Za-z\u0590-\u05FF]+\s*:\s*/, "")
-    .replace(/^\s*[-–]\s*/, "")
-    .trim();
-
-  if (!cleaned) return null;
-  if (cleaned.length > 120) return `${cleaned.slice(0, 117)}...`;
-
-  if (sectionType === "languages") {
-    return cleaned
-      .split(/[;|,]/)
-      .map((part) => normalizeLine(part).replace(/^[-–]\s*/, ""))
-      .filter(Boolean)
-      .slice(0, 3);
-  }
-
-  return [cleaned];
-}
-
-function buildSectionCandidate(lines: string[], startIndex: number, definition: SectionDefinition) {
-  const header = getHeaderMatch(lines[startIndex] ?? "", definition);
-  if (!header) return null;
-
-  const contentSegments: string[] = [];
-  const remainder = header.normalized.slice(header.index + header.headerText.length).trim();
-  if (remainder) {
-    contentSegments.push(remainder.replace(/^[:\-–\s]+/, ""));
-  }
-
-  for (let index = startIndex + 1; index < lines.length; index += 1) {
-    const candidateLine = normalizeLine(lines[index] ?? "");
-    if (!candidateLine) continue;
-    if (looksLikeAnyKnownSectionHeader(candidateLine)) break;
-    if (/^(summary|experience|skills|contact|references|portfolio|technical\s+skills|computer\s+skills|about|profile)$/i.test(candidateLine)) break;
-    contentSegments.push(candidateLine);
-  }
-
-  const content = contentSegments.join(" ").trim();
-  if (!content) return null;
-
-  const compacted = compactItem(content, definition.sectionType);
-  if (!compacted) return null;
-
-  const items = Array.isArray(compacted) ? compacted : [compacted];
-  const semanticHits = definition.semanticPatterns.filter((pattern) => pattern.test(content)).length;
-  const itemHits = definition.itemPatterns.filter((pattern) => pattern.test(content)).length;
-  const confidence = Math.min(0.95, 0.75 + Math.min(0.12, semanticHits * 0.05) + Math.min(0.08, itemHits * 0.03));
-
-  if (confidence < definition.minConfidence) return null;
-
-  return {
-    items: items.slice(0, 4),
-    confidence,
-    source: "explicit-header" as const,
-    evidence: [`header:${header.normalized}`],
-  } satisfies ResumeLocalSection;
-}
-
-function extractFlattenedSections(text: string) {
+function extractFromFlattenedText(text: string) {
   const normalized = normalizeLine(text);
-  if (!normalized) return {} as Partial<Record<keyof ResumeLocalExtraction, ResumeLocalSection>>;
+  if (!normalized) {
+    return {
+      sections: {},
+      boundaries: [],
+      headerCandidates: [],
+    };
+  }
 
-  const locatedHeaders = SECTION_DEFINITIONS.map((definition) => {
-    const header = getHeaderMatchAnywhere(normalized, definition);
-    if (!header) return null;
-    return { definition, ...header };
-  })
+  const locatedHeaders = SECTION_DEFINITIONS
+    .map((definition) => {
+      const match = getHeaderMatchAnywhere(normalized, definition);
+      if (!match) return null;
+      return {
+        sectionType: definition.sectionType,
+        definition,
+        headerText: match.headerText,
+        startIndex: match.index,
+      };
+    })
     .filter((entry) => entry !== null)
-    .sort((left, right) => left.index - right.index);
+    .sort((a, b) => a.startIndex - b.startIndex);
 
-  const result: Partial<Record<keyof ResumeLocalExtraction, ResumeLocalSection>> = {};
+  const sections: Partial<Record<keyof ResumeLocalExtraction, ResumeLocalSection>> = {};
+  const boundaries: ResumeSectionBoundaryDiagnostic[] = [];
+
   for (let i = 0; i < locatedHeaders.length; i += 1) {
     const current = locatedHeaders[i];
     const next = locatedHeaders[i + 1];
-    const contentStart = current.index + current.headerText.length;
-    const contentEnd = next ? next.index : normalized.length;
-    const rawContent = normalized.slice(contentStart, contentEnd).replace(/^[:\-–\s]+/, "").trim();
+    const contentStart = current.startIndex + current.headerText.length;
+    const contentEnd = next ? next.startIndex : normalized.length;
+    const rawContent = normalizeLine(normalized.slice(contentStart, contentEnd).replace(/^[:\-–\s|]+/, ""));
     if (!rawContent) continue;
 
-    const compacted = compactItem(rawContent, current.definition.sectionType);
-    if (!compacted) continue;
+    const includeHits = countMatches(rawContent, current.definition.includePatterns);
+    const excludeHits = countMatches(rawContent, current.definition.excludePatterns);
+    if (includeHits === 0 || includeHits <= excludeHits) continue;
 
-    const items = Array.isArray(compacted) ? compacted : [compacted];
-    const semanticHits = current.definition.semanticPatterns.filter((pattern) => pattern.test(rawContent)).length;
-    if (semanticHits === 0) continue;
-    const confidence = Math.min(0.95, 0.72 + Math.min(0.15, semanticHits * 0.06) + Math.min(0.08, items.length * 0.03));
+    const items = compactItem(rawContent, current.definition).slice(0, current.definition.maxItems);
+    if (items.length === 0) continue;
+
+    const confidence = Math.max(0, Math.min(0.92, 0.7 + Math.min(0.16, includeHits * 0.04) - Math.min(0.12, excludeHits * 0.06)));
     if (confidence < current.definition.minConfidence) continue;
 
-    result[current.definition.sectionType] = {
-      items: items.slice(0, 4),
+    sections[current.sectionType] = {
+      items,
       confidence,
       source: "semantic-pattern",
       evidence: [`flattened-header:${current.headerText}`],
     };
+
+    boundaries.push({
+      sectionType: current.sectionType,
+      startIndex: current.startIndex,
+      endIndex: Math.max(current.startIndex, contentEnd - 1),
+      confidence,
+    });
   }
 
-  return result;
+  return {
+    sections,
+    boundaries,
+    headerCandidates: locatedHeaders.map((entry) => `${entry.sectionType}:${entry.headerText}`).slice(0, 10),
+  };
 }
 
-function extractSectionValues(text: string) {
+function analyzeResumeSections(text: string) {
   const lines = splitIntoSegments(text);
-  const result: Partial<Record<keyof ResumeLocalExtraction, ResumeLocalSection>> = {};
 
-  for (const definition of SECTION_DEFINITIONS) {
-    const candidates: ResumeLocalSection[] = [];
-
-    lines.forEach((line, index) => {
-      if (!looksLikeSectionHeader(line, definition)) return;
-      const candidate = buildSectionCandidate(lines, index, definition);
-      if (candidate) {
-        candidates.push(candidate);
-      }
-    });
-
-    candidates.sort((left, right) => right.confidence - left.confidence);
-    const best = candidates[0];
-    if (best && best.confidence >= definition.minConfidence) {
-      result[definition.sectionType] = best;
-    }
+  const structured = extractFromLineStructure(lines);
+  if (Object.keys(structured.sections).length > 0 || lines.length > 3) {
+    return structured;
   }
 
-  if (Object.keys(result).length === 0 && lines.length <= 2) {
-    const flattened = extractFlattenedSections(text);
-    return { ...result, ...flattened };
-  }
-
-  return result;
+  return extractFromFlattenedText(text);
 }
 
 export function extractResumeLocalSections(extractedText: string): ResumeLocalExtraction {
   const trimmedText = extractedText?.trim() ?? "";
   if (!trimmedText) return {};
 
-  return extractSectionValues(trimmedText);
+  return analyzeResumeSections(trimmedText).sections;
+}
+
+export function extractResumeSectionDiagnostics(extractedText: string): ResumeExtractionDiagnostics {
+  const trimmedText = extractedText?.trim() ?? "";
+  if (!trimmedText) {
+    return {
+      headerCandidates: [],
+      boundaries: [],
+    };
+  }
+
+  const analyzed = analyzeResumeSections(trimmedText);
+  return {
+    headerCandidates: analyzed.headerCandidates,
+    boundaries: analyzed.boundaries,
+  };
 }

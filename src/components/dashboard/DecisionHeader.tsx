@@ -33,6 +33,12 @@ export function DecisionHeader({ data }: { data: ProductResponse }) {
         <span style={labelStyle}>{lang === "Hebrew" ? "המלצה" : "Recommendation"}</span>
         <strong>{statusLabel}</strong>
       </div>
+      {data.candidate_name ? (
+        <div style={cardStyle}>
+          <span style={labelStyle}>{lang === "Hebrew" ? "מועמד" : "Candidate"}</span>
+          <strong>{data.candidate_name}</strong>
+        </div>
+      ) : null}
     </div>
   );
 }
