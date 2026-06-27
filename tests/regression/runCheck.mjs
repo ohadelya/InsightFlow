@@ -78,6 +78,9 @@ function main() {
   const classifierUnit = run("node", ["--import", "tsx", "--test", "src/classifier/classifier.test.mts"]);
   if (!classifierUnit.ok) failures.push("Classifier unit tests failed");
 
+  const hebrewRtlUnit = run("node", ["--test", "src/extractors/hebrewRtlNormalization.test.mjs"]);
+  if (!hebrewRtlUnit.ok) failures.push("Hebrew RTL normalization unit tests failed");
+
   const regressionExec = run("node", ["--import", "tsx", "tests/regression/runRegression.mjs", "--json"]);
   const regression = parseRegressionJson(regressionExec.stdout);
   if (!regressionExec.ok || !regression.ready) {
@@ -96,7 +99,7 @@ function main() {
 
   printFinalSummary({
     regression,
-    unitOk: unit.ok && classifierUnit.ok,
+    unitOk: unit.ok && classifierUnit.ok && hebrewRtlUnit.ok,
     buildOk: build.ok,
     failures,
   });
@@ -111,6 +114,12 @@ function main() {
     process.stdout.write("\n[classifier test output]\n");
     process.stdout.write(classifierUnit.stdout);
     process.stdout.write(classifierUnit.stderr);
+  }
+
+  if (!hebrewRtlUnit.ok) {
+    process.stdout.write("\n[hebrew rtl test output]\n");
+    process.stdout.write(hebrewRtlUnit.stdout);
+    process.stdout.write(hebrewRtlUnit.stderr);
   }
 
   if (!regressionExec.ok) {

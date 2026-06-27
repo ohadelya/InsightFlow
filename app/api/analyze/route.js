@@ -9,6 +9,7 @@ import { safeParseAIJson } from "../../../src/utils/safeJson";
 import { computeHash } from "../../../src/utils/hash";
 import { getCachedAnalysis, setCachedAnalysis } from "../../../src/utils/analysisCache";
 import { extractResumeLocalSections, extractResumeSectionDiagnostics } from "../../../src/extractors/resumeLocalExtractor";
+import { normalizeHebrewRtlText } from "../../../src/extractors/hebrewRtlNormalization";
 import {
   dedupeNormalizedSlots,
   hasContactInfoSignals,
@@ -45,7 +46,7 @@ const openai = new OpenAI({
 });
 
 // Increment when deploying a fix so Vercel logs / debug_info confirm the new code is live
-const APP_VERSION = "b0602e8-resume-classification-fix";
+const APP_VERSION = "483a506-hebrew-rtl-normalization";
 
 const SECTION_TITLE_GUARDS = /^(summary|professional summary|profile|skills|experience|education|languages?|military service|projects?|certifications?|achievements?|שפות|השכלה|תמצית|ניסיון|כישורים|שירות\s+צבאי|פרויקטים|הישגים)$/i;
 
@@ -278,7 +279,8 @@ async function extractText(buffer) {
     parser.once("pdfParser_dataReady", (pdfData) => {
       try {
         const assembled = assemblePdf2JsonText(pdfData);
-        resolve(assembled || parser.getRawTextContent() || "");
+        const extracted = assembled || parser.getRawTextContent() || "";
+        resolve(normalizeHebrewRtlText(extracted));
       } catch (error) {
         reject(error);
       } finally {
