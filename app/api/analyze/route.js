@@ -1,5 +1,4 @@
 ﻿import { OpenAI } from "openai";
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { experts, DEFAULT_EXPERT } from "../../../src/experts/index";
 import { classifyDocumentType } from "../../../src/classifier/index";
 import { supportedDocumentTypes } from "../../../src/classifier/keywords";
@@ -38,38 +37,23 @@ import {
   startStageTimer,
 } from "../../../src/utils/performanceLogger";
 
-let pdfJsWorkerInitialized = false;
-async function initPdfJsWorker() {
-  if (pdfJsWorkerInitialized) return;
-  const { WorkerMessageHandler } = await new Function(
-    'return import("pdfjs-dist/legacy/build/pdf.worker.mjs")',
-  )();
-  globalThis.pdfjsWorker = { WorkerMessageHandler };
-  pdfJsWorkerInitialized = true;
-}
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// NOTE: pdfjs-dist may emit "TT: undefined function" warnings during text extraction.
-// These are font-metric warnings related to how some PDFs embed TrueType fonts.
-// They do NOT affect text extraction output and are safe to ignore.
 async function extractText(buffer) {
-  await initPdfJsWorker();
+  const { PDFParse } = await import("pdf-parse");
+  const parser = new PDFParse({ data: buffer });
 
-  const loadingTask = pdfjsLib.getDocument({ data: buffer });
-  const pdf = await loadingTask.promise;
-
-  let text = "";
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    const strings = content.items.map((item) => item.str || "");
-    text += strings.join(" ") + "\n";
+  try {
+    const result = await parser.getText();
+    return result.text || "";
+  } finally {
+    await parser.destroy();
   }
-
-  return text;
 }
 
 const MAX_INPUT_CHARS = 25000;
@@ -218,7 +202,24 @@ export async function POST(req) {
     const extractionTimer = startStageTimer("extraction", PERFORMANCE_BUDGETS.extraction);
     const arrayBuffer = await file.arrayBuffer();
     const pdfBytes = new Uint8Array(arrayBuffer);
-    const text = await extractText(pdfBytes);
+    let text;
+    try {
+      text = await extractText(pdfBytes);
+    } catch (error) {
+      metrics.extractionMs = extractionTimer.stop().durationMs;
+      metrics.totalMs = Date.now() - requestStart;
+      console.error("[app/api/analyze] extraction error", error);
+      finalizePerformanceLog(metrics);
+      return Response.json(
+        {
+          error: true,
+          stage: "extraction",
+          message: "Document extraction failed.",
+          details: "PDF parser failed in server runtime.",
+        },
+        { status: 500 },
+      );
+    }
     const trimmedText = text.trim();
     const extractedWordCount = trimmedText ? trimmedText.split(/\s+/).filter(Boolean).length : 0;
     const extractedHebrewCharCount = trimmedText ? (trimmedText.match(/[\u0590-\u05FF]/g) || []).length : 0;
@@ -746,7 +747,9 @@ ${textForPrompt}`;
     console.error("[app/api/analyze] error", e);
     return Response.json(
       {
-        error: e?.message || String(e),
+        error: true,
+        stage: "server",
+        message: "Request processing failed.",
       },
       { status: 500 },
     );
