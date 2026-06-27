@@ -87,7 +87,20 @@ function assemblePdf2JsonText(pdfData) {
     }
 
     const pageLines = rows
-      .map((row) => row.items.sort((a, b) => a.x - b.x).map((entry) => entry.text).join(" ").replace(/\s+/g, " ").trim())
+      .map((row) => {
+        // Hebrew/RTL text items have higher x values on the right (start of reading) so
+        // must be sorted descending to restore logical reading order.
+        const rowRawText = row.items.map((item) => item.text).join("");
+        const rtlCharCount = (rowRawText.match(/[\u0590-\u05FF]/g) || []).length;
+        const ltrCharCount = (rowRawText.match(/[A-Za-z]/g) || []).length;
+        const isRtlRow = rtlCharCount > ltrCharCount;
+        return row.items
+          .sort((a, b) => (isRtlRow ? b.x - a.x : a.x - b.x))
+          .map((entry) => entry.text)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+      })
       .filter(Boolean);
 
     if (pageLines.length > 0) {
@@ -451,6 +464,40 @@ ${textForPrompt}`;
         : 0;
       docType = finalConfidence >= 0.6 ? finalType : "generic";
       classificationReason = `AI classification result ${finalType} with confidence ${finalConfidence}. ${weakClassification.reason}`;
+    }
+
+    // Guard: never surface 0% confidence to the UI — use a minimum "uncertain" floor
+    if (finalConfidence === 0) {
+      finalConfidence = 0.3;
+    }
+
+    // Sanitised classification diagnostics — no raw document text or personal data
+    {
+      const diagNorm = trimmedText.toLowerCase();
+      const signalCategories = {
+        contact_info:
+          /[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}/.test(diagNorm) ||
+          diagNorm.includes("טלפון") || diagNorm.includes("מייל") ||
+          diagNorm.includes("אימייל") || diagNorm.includes("linkedin"),
+        experience: diagNorm.includes("ניסיון") || diagNorm.includes("experience") || diagNorm.includes("תעסוקתי"),
+        education: diagNorm.includes("השכלה") || diagNorm.includes("לימודים") || diagNorm.includes("תואר") || diagNorm.includes("education"),
+        skills: diagNorm.includes("מיומנויות") || diagNorm.includes("כישורים") || diagNorm.includes("skills"),
+        languages: diagNorm.includes("שפות") || diagNorm.includes("languages") || (diagNorm.includes("עברית") && diagNorm.includes("אנגלית")),
+        military_service: diagNorm.includes("שירות צבאי") || diagNorm.includes("צהל") || diagNorm.includes("military") || diagNorm.includes("idf"),
+        professional_summary: diagNorm.includes("פרופיל") || diagNorm.includes("תמצית") || diagNorm.includes("summary") || diagNorm.includes("profile"),
+        resume_header: diagNorm.includes("קורות חיים") || diagNorm.includes("curriculum vitae") || /\bresume\b/.test(diagNorm),
+      };
+      console.log("[app/api/analyze] classification-debug", {
+        extractedTextLength: trimmedText.length,
+        lineCount: extractedLineCount,
+        detectedLanguage: language,
+        localClassification: { docType: weakClassification.docType, confidence: weakClassification.confidence },
+        resumeSignalCategories: signalCategories,
+        resumeSignalsFound: Object.values(signalCategories).filter(Boolean).length,
+        finalDocType: docType,
+        finalConfidence,
+        classificationReason,
+      });
     }
 
     metrics.documentType = docType;
