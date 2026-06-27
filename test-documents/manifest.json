@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "fixtures": [
+    {
+      "id": "resume_en_synthetic",
+      "path": "synthetic-resume.pdf",
+      "expectedDocumentType": "resume",
+      "language": "English",
+      "requiredSlotTypes": [
+        "decision_summary",
+        "document_completeness",
+        "candidate_snapshot",
+        "skills_analysis",
+        "education"
+      ]
+    },
+    {
+      "id": "resume_he_real",
+      "path": "test.pdf",
+      "expectedDocumentType": "resume",
+      "language": "Hebrew",
+      "requiredSlotTypes": [
+        "decision_summary",
+        "document_completeness",
+        "candidate_snapshot",
+        "skills_analysis",
+        "education"
+      ],
+      "notes": "May fail extraction if OCR text is unavailable; track separately from semantic regressions."
+    },
+    {
+      "id": "resume_he_synthetic",
+      "path": "synthetic-hebrew-resume.pdf",
+      "expectedDocumentType": "resume",
+      "language": "Hebrew",
+      "requiredSlotTypes": [
+        "decision_summary",
+        "document_completeness"
+      ],
+      "notes": "Fallback fixture for Hebrew localization checks."
+    }
+  ],
+  "missingFixtures": [
+    "contract_he",
+    "contract_en",
+    "tender_en_or_he",
+    "requirements_en_or_he"
+  ]
+}

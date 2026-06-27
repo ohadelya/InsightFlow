@@ -1,0 +1,9 @@
+{
+  "expectedDocumentType": "tender",
+  "expectedLanguage": "en",
+  "requiredSlotTypes": [],
+  "forbiddenUserFacingStrings": ["positive"],
+  "requiredUserFacingLanguage": "en",
+  "expectQualityValid": true,
+  "maxAllowedTotalMs": 5000
+}

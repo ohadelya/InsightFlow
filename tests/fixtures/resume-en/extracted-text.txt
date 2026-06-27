@@ -1,0 +1,25 @@
+Resume
+Name: Daniel Levi
+Phone: +1 212 555 0188
+Email: daniel.levi@example.com
+Location: New York
+LinkedIn: linkedin.com/in/daniellevi
+
+Professional Summary
+Systems analyst and project manager with 7 years of experience in enterprise delivery and requirements analysis.
+Strong background in coordinating product, engineering, and operations stakeholders.
+
+Experience
+2020-2026 Project Manager, Enterprise SaaS company.
+Led roadmap planning, dependencies, risk tracking, and release readiness.
+2017-2020 Systems Analyst, Financial services group.
+Owned functional specifications, acceptance criteria, and data mappings.
+
+Education
+B.Sc. in Information Systems, University of Maryland, 2016.
+
+Skills
+SQL, Python, Jira, Power BI, stakeholder management, process design.
+
+Languages
+English native, Hebrew conversational.

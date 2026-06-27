@@ -1,0 +1,16 @@
+Service Agreement
+This agreement is made between Party A and Party B.
+
+Effective date: January 1, 2026
+Term: 24 months
+
+Obligations
+The vendor shall provide support services, corrective maintenance, and periodic reporting.
+Each party is responsible for confidentiality and compliance with security requirements.
+
+Terms and conditions
+The contract defines liability limits, breach handling, and termination rights.
+Failure to meet obligations may trigger penalties and compensation clauses.
+
+Termination
+Either party may terminate with 30 days written notice under the contract terms.

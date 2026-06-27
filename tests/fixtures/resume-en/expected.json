@@ -1,0 +1,9 @@
+{
+  "expectedDocumentType": "resume",
+  "expectedLanguage": "en",
+  "requiredSlotTypes": ["education"],
+  "forbiddenUserFacingStrings": ["positive"],
+  "requiredUserFacingLanguage": "en",
+  "expectQualityValid": true,
+  "maxAllowedTotalMs": 5000
+}

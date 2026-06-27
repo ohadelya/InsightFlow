@@ -1,0 +1,9 @@
+{
+  "expectedDocumentType": "contract",
+  "expectedLanguage": "he",
+  "requiredSlotTypes": [],
+  "forbiddenUserFacingStrings": ["positive"],
+  "requiredUserFacingLanguage": "en",
+  "expectQualityValid": true,
+  "maxAllowedTotalMs": 5000
+}

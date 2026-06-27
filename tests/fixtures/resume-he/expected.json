@@ -1,0 +1,9 @@
+{
+  "expectedDocumentType": "resume",
+  "expectedLanguage": "he",
+  "requiredSlotTypes": ["education", "languages"],
+  "forbiddenUserFacingStrings": ["positive", "Candidate Snapshot", "Relevant Experience"],
+  "requiredUserFacingLanguage": "he",
+  "expectQualityValid": true,
+  "maxAllowedTotalMs": 5000
+}
