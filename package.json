@@ -12,13 +12,11 @@
     "check": "node --import tsx tests/regression/runCheck.mjs"
   },
   "dependencies": {
-    "@napi-rs/canvas": "^1.0.1",
     "jspdf": "^2.5.2",
     "multer": "^2.2.0",
     "next": "16.2.9",
     "openai": "^6.45.0",
-    "pdf-parse": "^2.4.5",
-    "pdfjs-dist": "^6.0.227",
+    "pdf2json": "^4.0.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },

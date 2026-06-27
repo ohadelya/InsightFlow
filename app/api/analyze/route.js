@@ -44,43 +44,29 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-let pdfRuntimePolyfillsInitialized = false;
-
-async function ensurePdfRuntimePolyfills() {
-  if (pdfRuntimePolyfillsInitialized) return;
-
-  try {
-    const canvas = await import("@napi-rs/canvas");
-
-    if (!globalThis.DOMMatrix && canvas.DOMMatrix) {
-      globalThis.DOMMatrix = canvas.DOMMatrix;
-    }
-
-    if (!globalThis.ImageData && canvas.ImageData) {
-      globalThis.ImageData = canvas.ImageData;
-    }
-
-    if (!globalThis.Path2D && canvas.Path2D) {
-      globalThis.Path2D = canvas.Path2D;
-    }
-  } catch (error) {
-    console.warn("[app/api/analyze] canvas polyfill unavailable", error);
-  }
-
-  pdfRuntimePolyfillsInitialized = true;
-}
-
 async function extractText(buffer) {
-  await ensurePdfRuntimePolyfills();
-  const { PDFParse } = await import("pdf-parse");
-  const parser = new PDFParse({ data: buffer });
+  const { default: PDFParser } = await import("pdf2json");
 
-  try {
-    const result = await parser.getText();
-    return result.text || "";
-  } finally {
-    await parser.destroy();
-  }
+  return await new Promise((resolve, reject) => {
+    const parser = new PDFParser(null, true);
+
+    parser.once("pdfParser_dataReady", () => {
+      try {
+        resolve(parser.getRawTextContent() || "");
+      } catch (error) {
+        reject(error);
+      } finally {
+        parser.destroy();
+      }
+    });
+
+    parser.once("pdfParser_dataError", (error) => {
+      parser.destroy();
+      reject(error?.parserError || error);
+    });
+
+    parser.parseBuffer(Buffer.from(buffer));
+  });
 }
 
 const MAX_INPUT_CHARS = 25000;
